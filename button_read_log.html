@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Button Dashboard (REST API)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- CSS ทั้งหมดจะอยู่ในนี้ --- */
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .dashboard-container {
+            background-color: #ffffff;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            text-align: center;
+            color: #1a2c4e;
+            margin-top: 0;
+            margin-bottom: 2rem;
+        }
+
+        /* --- ส่วนแสดงสถานะ --- */
+        .status-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            border-radius: 8px;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 2.5rem;
+            transition: background-color 0.3s ease, color 0.3s ease;
+            border: 1px solid #e0e0e0;
+        }
+
+        .indicator {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            margin-right: 1rem;
+            transition: background-color 0.3s ease;
+        }
+
+        /* สถานะ ON (เขียว) */
+        .status-on .indicator {
+            background-color: #28a745;
+            box-shadow: 0 0 10px #28a745;
+        }
+        .status-on {
+            background-color: #e9f5ec;
+            color: #28a745;
+        }
+
+        /* สถานะ OFF (แดง) */
+        .status-off .indicator {
+            background-color: #dc3545;
+            box-shadow: 0 0 10px #dc3545;
+        }
+        .status-off {
+            background-color: #fbebed;
+            color: #dc3545;
+        }
+
+        /* --- ส่วน Log --- */
+        .log-container {
+            margin-top: 2rem;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            margin: 0;
+            color: #1a2c4e;
+        }
+
+        #download-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 6px;
+            font-family: 'Sarabun', sans-serif;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        #download-btn:hover {
+            background-color: #0056b3;
+        }
+        #download-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .table-wrapper {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 0.8rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        thead th {
+            background-color: #f8f9fa;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .log-on {
+            color: #28a745;
+            font-weight: 700;
+        }
+
+        .log-off {
+            color: #dc3545;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <h1>ESP32 Button Dashboard (REST API)</h1>
+
+        <!-- ส่วนแสดงสถานะปัจจุบัน -->
+        <div id="status-box" class="status-box">
+            <div id="status-indicator" class="indicator"></div>
+            <span id="status-text">กำลังรอข้อมูล...</span>
+        </div>
+
+        <!-- ส่วนแสดง Log -->
+        <div class="log-container">
+            <div class="log-header">
+                <h2>ประวัติการเปลี่ยนแปลง</h2>
+                <button id="download-btn">Download Log (CSV)</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="log-table">
+                    <thead>
+                        <tr>
+                            <th>วัน-เวลา (Timestamp)</th>
+                            <th>สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-body">
+                        <!-- ข้อมูล Log จะถูกเพิ่มที่นี่ด้วย JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- JavaScript ทั้งหมดจะอยู่ในนี้ ---
+
+        // --- 1. กรุณาแก้ไขข้อมูลในส่วนนี้ ---
+        // URL ของ Firebase Realtime Database ของคุณที่ลงท้ายด้วย path และ .json
+        // ไม่ต้องใส่ auth token เพราะเราตั้งค่า Rules เป็น public read แล้ว
+        const firebaseRestUrl = "https://chacharin-b70b7-default-rtdb.asia-southeast1.firebasedatabase.app/button.json";
+
+        // --- 2. อ้างอิงถึง Element ต่างๆ ใน HTML ---
+        const statusBox = document.getElementById('status-box');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const logBody = document.getElementById('log-body');
+        const downloadBtn = document.getElementById('download-btn');
+
+        // --- 3. ตัวแปรสำหรับเก็บข้อมูล Log และสถานะล่าสุด ---
+        let logData = [];
+        let lastKnownValue = null; // ใช้เพื่อตรวจสอบว่าค่ามีการเปลี่ยนแปลงจริงหรือไม่
+
+        // --- 4. ฟังก์ชันสำหรับอัปเดต UI ส่วนแสดงสถานะ ---
+        function updateStatusUI(value) {
+            if (value === 1) {
+                statusText.textContent = 'ON';
+                statusBox.className = 'status-box status-on';
+            } else {
+                statusText.textContent = 'OFF';
+                statusBox.className = 'status-box status-off';
+            }
+        }
+
+        // --- 5. ฟังก์ชันสำหรับเพิ่มข้อมูลลงในตาราง Log ---
+        function addLogEntry(value) {
+            const timestamp = new Date().toLocaleString('th-TH', {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+            const statusString = (value === 1) ? 'ON' : 'OFF';
+
+            logData.push({ timestamp, value, status: statusString });
+
+            const newRow = logBody.insertRow(0); // เพิ่มแถวใหม่ด้านบนสุด
+            const cellTimestamp = newRow.insertCell(0);
+            const cellStatus = newRow.insertCell(1);
+
+            cellTimestamp.textContent = timestamp;
+            cellStatus.textContent = statusString;
+            cellStatus.className = (value === 1) ? 'log-on' : 'log-off';
+            
+            if(downloadBtn.disabled) {
+                downloadBtn.disabled = false;
+            }
+        }
+
+        // --- 6. ฟังก์ชันหลัก: การดึงข้อมูลด้วย REST API (Fetch) ---
+        async function fetchButtonStatus() {
+            try {
+                const response = await fetch(firebaseRestUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const value = await response.json();
+
+                // --- หัวใจสำคัญ: ทำงานต่อเมื่อค่าที่ได้มาไม่เหมือนกับค่าล่าสุดที่เก็บไว้ ---
+                if (value !== null && value !== lastKnownValue) {
+                    console.log(`ตรวจพบการเปลี่ยนแปลง! ค่าใหม่: ${value}`);
+                    
+                    updateStatusUI(value);
+                    addLogEntry(value);
+                    
+                    // อัปเดตค่าล่าสุด
+                    lastKnownValue = value;
+                }
+
+            } catch (error) {
+                console.error("ไม่สามารถดึงข้อมูลจาก Firebase ได้:", error);
+                statusText.textContent = 'Error!';
+                statusBox.className = 'status-box status-off';
+            }
+        }
+
+        // --- 7. ฟังก์ชันสำหรับดาวน์โหลด Log เป็นไฟล์ CSV ---
+        function downloadCSV() {
+            if (logData.length === 0) {
+                alert('ยังไม่มีข้อมูล Log ให้ดาวน์โหลด');
+                return;
+            }
+
+            let csvContent = "Timestamp,Value,Status\n";
+
+            logData.forEach(entry => {
+                const timestamp = `"${entry.timestamp}"`;
+                const row = [timestamp, entry.value, entry.status].join(',');
+                csvContent += row + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", "esp32_button_log.csv");
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // --- 8. เริ่มการทำงาน ---
+        
+        // ผูก Event Listener กับปุ่มดาวน์โหลด
+        downloadBtn.addEventListener('click', downloadCSV);
+        downloadBtn.disabled = true; // เริ่มต้นโดยปิดการใช้งานปุ่ม
+
+        // เรียกฟังก์ชันดึงข้อมูลครั้งแรกทันทีเมื่อเปิดหน้าเว็บ
+        fetchButtonStatus();
+
+        // ตั้งเวลาให้ไปดึงข้อมูลทุกๆ 2 วินาที (2000 milliseconds)
+        setInterval(fetchButtonStatus, 500);
+
+    </script>
+</body>
+</html>

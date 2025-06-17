@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Servo Control (REST API)</title>
+    <!-- เพิ่มฟอนต์สวยๆ จาก Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* CSS ยังคงเหมือนเดิมเพื่อความสวยงาม */
+        body {
+            font-family: 'Sarabun', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+        .container {
+            text-align: center;
+            padding: 40px;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 400px;
+        }
+        h1 {
+            color: #1a73e8;
+            margin-bottom: 30px;
+        }
+        .slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 15px;
+            background: #ddd;
+            outline: none;
+            opacity: 0.7;
+            -webkit-transition: .2s;
+            transition: opacity .2s;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .slider:hover {
+            opacity: 1;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            background: #1a73e8;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .slider::-moz-range-thumb {
+            width: 25px;
+            height: 25px;
+            background: #1a73e8;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        #sliderValue {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #1a73e8;
+            margin-top: 10px;
+        }
+        #status {
+            margin-top: 20px;
+            font-style: italic;
+            color: #666;
+            height: 20px; /* จองพื้นที่ไว้สำหรับแสดงสถานะ */
+        }
+    </style>
+</head>
+<body>
+
+    <!-- --- ส่วนของ HTML โครงสร้างหน้าเว็บ --- -->
+    <div class="container">
+        <h1>ควบคุม Servo Motor</h1>
+        <p>เลื่อนเพื่อปรับองศา (0-180)</p>
+        
+        <input type="range" min="0" max="180" value="90" class="slider" id="servoSlider">
+        
+        <p><span id="sliderValue">90</span> °</p>
+
+        <div id="status"></div>
+    </div>
+
+    <!-- --- ส่วนของ JavaScript การทำงาน (ใช้ REST API) --- -->
+    <script>
+        // 1. กำหนดค่า Firebase REST API URL ของคุณ
+        const firebaseUrl = "https://chacharin-b70b7-default-rtdb.asia-southeast1.firebasedatabase.app/test.json?auth=9w1FYYpcfTRHGAm9grMcFTCisi1ZdK5B4E4Mzl9M";
+
+        // 2. ดึง Element จากหน้า HTML มาใช้งาน
+        const slider = document.getElementById('servoSlider');
+        const valueDisplay = document.getElementById('sliderValue');
+        const statusDisplay = document.getElementById('status');
+
+        // ฟังก์ชันสำหรับส่งข้อมูลไปยัง Firebase (ใช้ HTTP PUT)
+        async function updateFirebase(value) {
+            try {
+                // REST API ต้องการข้อมูลในรูปแบบ JSON string
+                // การส่งค่าเป็น string '"123"' แทนที่จะเป็นตัวเลข 123 จะทำให้ Firebase เก็บเป็น String ตามโจทย์
+                const dataToSend = JSON.stringify(String(value));
+
+                statusDisplay.textContent = 'กำลังส่งข้อมูล...';
+
+                const response = await fetch(firebaseUrl, {
+                    method: 'PUT', // PUT คือการเขียนข้อมูลทับที่ path นั้นๆ
+                    body: dataToSend,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log("ส่งข้อมูลสำเร็จ:", result);
+                statusDisplay.textContent = 'ส่งข้อมูลสำเร็จ!';
+                
+                // ซ่อนข้อความสถานะหลังจากผ่านไป 2 วินาที
+                setTimeout(() => { statusDisplay.textContent = ''; }, 2000);
+
+            } catch (error) {
+                console.error("เกิดข้อผิดพลาดในการส่งข้อมูล:", error);
+                statusDisplay.textContent = 'ส่งข้อมูลล้มเหลว!';
+                alert("ไม่สามารถส่งข้อมูลไปยัง Firebase ได้!");
+            }
+        }
+
+        // ฟังก์ชันสำหรับอ่านข้อมูลจาก Firebase ครั้งแรก (ใช้ HTTP GET)
+        async function fetchInitialValue() {
+            try {
+                const response = await fetch(firebaseUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                // Firebase REST API จะส่งค่ากลับมาพร้อมเครื่องหมายคำพูด (ถ้าเก็บเป็น String)
+                // เราสามารถใช้ `replace` เพื่อเอาออกก่อน หรือแปลงเป็นตัวเลขโดยตรง
+                const angleValue = parseInt(data, 10);
+                
+                if (!isNaN(angleValue)) {
+                    console.log("ได้รับค่าเริ่มต้นจาก Firebase:", angleValue);
+                    slider.value = angleValue;
+                    valueDisplay.textContent = angleValue;
+                }
+
+            } catch (error) {
+                console.error("เกิดข้อผิดพลาดในการดึงข้อมูลเริ่มต้น:", error);
+            }
+        }
+
+        // 3. สร้าง Event Listener สำหรับ Slider
+        // ใช้เหตุการณ์ 'change' เพื่อส่งข้อมูลเมื่อผู้ใช้ปล่อยเมาส์ (ลดการส่ง request)
+        // หากต้องการส่งแบบ real-time ให้เปลี่ยนเป็น 'input'
+        slider.addEventListener('input', (event) => {
+            // อัปเดตตัวเลขบนหน้าจอทันทีเพื่อการตอบสนองที่ดี
+            valueDisplay.textContent = event.target.value;
+        });
+
+        slider.addEventListener('change', (event) => {
+            // ส่งข้อมูลไปยัง Firebase เมื่อผู้ใช้ปล่อยเมาส์
+            updateFirebase(event.target.value);
+        });
+
+        // 4. เมื่อหน้าเว็บโหลดเสร็จ ให้ดึงค่าล่าสุดจาก Firebase มาแสดง
+        document.addEventListener('DOMContentLoaded', fetchInitialValue);
+    </script>
+</body>
+</html>
